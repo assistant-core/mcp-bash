@@ -21,6 +21,23 @@ You can also put `MCP_ENDPOINT` in a `.env` file (see `.env.example`). To connec
 
 `connector.py` is the equivalent of Xiaozhi's `mcp_pipe.py` and takes the same `MCP_ENDPOINT` URL.
 
+## Keep it running on a server
+
+To keep the connector running after you close SSH, start it inside `tmux`:
+
+```bash
+tmux new -s connector
+cd ~/mcp-bash && source .venv/bin/activate && python connector.py
+# Ctrl+B then D to detach; the connector keeps running
+```
+
+```bash
+tmux attach -t connector                  # back to the logs
+tmux kill-session -t connector            # stop it
+```
+
+tmux survives SSH disconnects, but not a server reboot, and nothing restarts the connector if it exits.
+
 ## The `bash` tool
 
 | Parameter | Description |

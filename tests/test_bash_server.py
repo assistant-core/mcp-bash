@@ -1,4 +1,5 @@
 import asyncio
+import json
 import subprocess
 import sys
 import time
@@ -41,10 +42,32 @@ def test_long_output_is_truncated(monkeypatch, tmp_path):
     monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
 
     limit = bash_server.MAX_OUTPUT_CHARS
-    result = run(f"head -c {limit + 100} /dev/zero | tr '\\0' a")
+    result = run(f"echo START; head -c {limit} /dev/zero | tr '\\0' a; echo END")
 
     assert result["truncated"] is True
-    assert result["stdout"].endswith("[output truncated]")
+    assert result["stdout"].startswith("START")
+    assert "[output truncated]" in result["stdout"]
+    assert result["stdout"].rstrip().endswith("END")
+
+
+def test_huge_output_keeps_its_end(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+
+    result = run("echo START; head -c 5000000 /dev/zero | tr '\\0' a; echo END")
+
+    assert result["stdout"].startswith("START")
+    assert result["stdout"].rstrip().endswith("END")
+    assert len(result["stdout"]) < bash_server.MAX_OUTPUT_CHARS + 100
+
+
+def test_short_output_is_kept_whole(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+
+    # 18,000 characters but 50,000 bytes: spans the head and tail buffers.
+    result = run("printf 'ữữữữữữữữ\\n%.0s' $(seq 2000)")
+
+    assert result["truncated"] is False
+    assert result["stdout"] == "ữữữữữữữữ\n" * 2000
 
 
 def test_stdin_is_closed_so_prompts_do_not_hang(monkeypatch, tmp_path):
@@ -140,3 +163,54 @@ def test_concurrent_commands_are_limited(monkeypatch, tmp_path):
 
     assert sum(r.get("exit_code") == 0 for r in results) == 2
     assert sum("already running" in r.get("error", "") for r in results) == 1
+
+
+def test_working_directory_carries_over_but_env_does_not(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+    sub = (tmp_path / "sub").resolve()
+
+    first = run("mkdir sub && cd sub && export FOO=1; exit 3")
+    second = run("pwd; echo ${FOO:-unset}")
+
+    assert first["cwd"] == str(sub)
+    assert second["stdout"].split() == [str(sub), "unset"]
+
+
+def test_restart_goes_back_to_the_initial_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+    run("mkdir sub && cd sub")
+
+    result = run("pwd", restart=True)
+
+    assert result["stdout"].strip() == str(tmp_path.resolve())
+
+
+def test_deleted_directory_falls_back_to_the_initial_one(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+    run("mkdir sub && cd sub")
+    (tmp_path / "sub").rmdir()
+
+    assert run("pwd")["stdout"].strip() == str(tmp_path.resolve())
+
+
+def test_timed_out_command_keeps_the_previous_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+    run("mkdir sub && cd sub")
+
+    timed_out = run("cd /; sleep 5", timeout_seconds=1)
+
+    assert timed_out["cwd"] == str((tmp_path / "sub").resolve())
+    assert run("pwd")["stdout"].strip() == timed_out["cwd"]
+
+
+def test_every_command_is_audited(monkeypatch, tmp_path):
+    monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
+
+    run("echo hi; exit 2")
+
+    (line,) = bash_server.AUDIT_LOG.read_text().splitlines()
+    entry = json.loads(line)
+    assert entry["command"] == "echo hi; exit 2"
+    assert entry["exit_code"] == 2
+    assert entry["cwd"] == str(tmp_path)
+    assert bash_server.AUDIT_LOG.stat().st_mode & 0o777 == 0o600

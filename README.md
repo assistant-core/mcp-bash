@@ -27,16 +27,18 @@ You can also put `MCP_ENDPOINT` in a `.env` file (see `.env.example`). To connec
 |---|---|
 | `command` | Bash command to run |
 | `timeout_seconds` | 1–120, default 30 |
+| `restart` | Start from `BASH_WORKDIR` instead of where the last command ended |
 
-Returns `stdout`, `stderr`, `exit_code`, `timed_out` and `cwd`.
+Returns `stdout`, `stderr`, `exit_code`, `timed_out`, `truncated` and `cwd` (where the command ended).
 
-- Commands start in `BASH_WORKDIR` (default: your home directory). This is a starting point, **not a sandbox**.
+- The first command starts in `BASH_WORKDIR` (default: your home directory); each later one starts where the previous one ended, like a terminal. Environment variables, aliases and functions do not carry over: every call is a new shell. A command that times out keeps the directory it started in. This is a starting point, **not a sandbox**.
 - Commands see only a minimal environment (`PATH`, `HOME`, `USER`, `SHELL`, locale, `TERM`, `TMPDIR`, `TZ`), so secrets in your shell, including the Connector URL, never reach the assistant. Pass extra variables explicitly with `BASH_PASS_ENV=GITHUB_TOKEN,AWS_PROFILE`; anything you pass, the assistant can read.
 - stdin is closed, so commands that prompt for input fail instead of hanging.
 - On timeout the whole process group is killed. A process that starts its own session (`setsid`) can outlive it; there is no sandbox to stop that.
 - Background jobs keep running after the command returns; redirect their output (`cmd > log 2>&1 &`), since the result is returned as soon as bash exits.
-- stdout and stderr are each truncated to 20,000 characters, and memory stays bounded however much a command prints.
+- stdout and stderr are each truncated to 20,000 characters, keeping the first 8,000 and the last 12,000, and memory stays bounded however much a command prints.
 - At most 2 commands run at once; extra calls return an error.
+- Every command is appended to `audit.jsonl` next to `bash_server.py` (or `BASH_AUDIT_LOG`): time, command, starting directory, exit code and duration, not the output. The file is readable only by you.
 - Requires bash (macOS, Linux, or WSL on Windows).
 
 ## Reconnection

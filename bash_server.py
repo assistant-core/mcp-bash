@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -63,6 +64,21 @@ WORKDIR = Path(os.environ.get("BASH_WORKDIR") or Path.home()).expanduser()
 AUDIT_LOG = Path(
     os.environ.get("BASH_AUDIT_LOG") or Path(__file__).with_name("audit.jsonl")
 ).expanduser()
+# Machines connected to one assistant need different tool names (web01_bash,
+# db01_bash): tools with the same name collide, and the model could not tell
+# the machines apart.
+TOOL_NAME = os.environ.get("BASH_TOOL_NAME") or "bash"
+if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", TOOL_NAME):
+    sys.exit("BASH_TOOL_NAME must be 1-64 letters, digits, '_' or '-'.")
+# Assistant Core surfaces the tool is offered on. "app" (the web and mobile
+# apps) keeps it away from website widget visitors, messaging apps, voice
+# devices and the public API, where anyone the assistant talks to could run
+# commands.
+SURFACES = [
+    s.strip()
+    for s in (os.environ.get("BASH_SURFACES") or "app").split(",")
+    if s.strip()
+]
 
 mcp = FastMCP("Bash")
 _running = 0
@@ -154,11 +170,13 @@ def _kill_group(process: asyncio.subprocess.Process) -> None:
 
 
 @mcp.tool(
+    name=TOOL_NAME,
+    meta={"assistant_platform": {"surfaces": SURFACES}},
     annotations=ToolAnnotations(
         title="Run bash command",
         destructive_hint=True,
         open_world_hint=True,
-    )
+    ),
 )
 async def bash(
     command: Annotated[

@@ -1,10 +1,12 @@
 import asyncio
+import importlib
 import json
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+import pytest
 from fastmcp import Client
 
 import bash_server
@@ -89,6 +91,49 @@ def test_tool_schema_describes_every_parameter():
     assert tool.annotations.destructive_hint is True
     for name, schema in tool.input_schema["properties"].items():
         assert schema.get("description"), name
+
+
+def _listed_tool(monkeypatch, **env):
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    # Reloading reads the env again; reload once more so other tests see defaults.
+    mcp = importlib.reload(bash_server).mcp
+    monkeypatch.undo()
+    importlib.reload(bash_server)
+
+    async def list_tools():
+        async with Client(mcp) as client:
+            return await client.list_tools()
+
+    (tool,) = asyncio.run(list_tools())
+    return tool
+
+
+def test_tool_is_offered_only_in_the_apps_by_default(monkeypatch):
+    monkeypatch.delenv("BASH_SURFACES", raising=False)
+
+    tool = _listed_tool(monkeypatch)
+
+    assert tool.meta["assistant_platform"] == {"surfaces": ["app"]}
+
+
+def test_tool_name_and_surfaces_are_configurable(monkeypatch):
+    tool = _listed_tool(
+        monkeypatch, BASH_TOOL_NAME="web01_bash", BASH_SURFACES="app, api"
+    )
+
+    assert tool.name == "web01_bash"
+    assert tool.meta["assistant_platform"] == {"surfaces": ["app", "api"]}
+
+
+def test_invalid_tool_name_is_rejected(monkeypatch):
+    monkeypatch.setenv("BASH_TOOL_NAME", "web 01.bash")
+    try:
+        with pytest.raises(SystemExit):
+            importlib.reload(bash_server)
+    finally:
+        monkeypatch.undo()
+        importlib.reload(bash_server)
 
 
 def test_commands_do_not_see_server_secrets(monkeypatch, tmp_path):

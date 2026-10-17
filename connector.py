@@ -86,6 +86,21 @@ async def run_session(uri: str, command: list[str]) -> None:
                     process.kill()
 
 
+def close_hint(close) -> str:
+    """What the owner should do about the endpoint closing the connection."""
+    if close is None:
+        return ""
+    if close.code in (1008, 4401):
+        return " (the Connector URL is invalid, regenerated or deleted)"
+    if close.code == 4409:
+        # Another machine uses this URL, or offers a tool with the same name.
+        return (
+            f" ({close.reason}; give each machine its own Connector URL "
+            "and BASH_TOOL_NAME)"
+        )
+    return ""
+
+
 async def run_forever(uri: str, command: list[str]) -> None:
     backoff = INITIAL_BACKOFF
     while True:
@@ -95,12 +110,7 @@ async def run_forever(uri: str, command: list[str]) -> None:
             logger.warning("Session ended")
         except websockets.ConnectionClosed as exc:
             code = exc.rcvd.code if exc.rcvd else None
-            hint = (
-                " (the Connector URL is invalid or was regenerated)"
-                if code in (1008, 4401)
-                else ""
-            )
-            logger.warning("Connection closed: code=%s%s", code, hint)
+            logger.warning("Connection closed: code=%s%s", code, close_hint(exc.rcvd))
         except (OSError, websockets.InvalidURI, websockets.InvalidHandshake) as exc:
             logger.warning("Connection failed: %s", exc)
         if asyncio.get_running_loop().time() - started >= STABLE_SESSION_SECONDS:

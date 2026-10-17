@@ -10,16 +10,50 @@ A minimal MCP server that lets an AI assistant run bash commands on your machine
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Assistant Core admin → MCP → Local connector → Create Connector URL (shown once)
+# Assistant Core admin → MCP → Local connector → Add connector (URL shown once)
 export MCP_ENDPOINT="wss://api.assistantcore.com/mcp_endpoint/mcp/?token=mcpe_..."
 python connector.py
 ```
 
-Then refresh tools in the admin; the assistant gets one tool, `bash`.
+Then click **Refresh tools** in the admin: the assistant gets one tool, `bash`. Assistant Core offers a connector's tools only as the owner last refreshed them, so refresh again after changing `BASH_TOOL_NAME`, `BASH_SURFACES` or the server.
 
 You can also put `MCP_ENDPOINT` in a `.env` file (see `.env.example`). To connect a different stdio MCP server, pass its script: `python connector.py my_server.py`.
 
 `connector.py` is the equivalent of Xiaozhi's `mcp_pipe.py` and takes the same `MCP_ENDPOINT` URL.
+
+## Where the tool is offered
+
+On Assistant Core the tool is offered only in the web and mobile apps (`BASH_SURFACES=app`), never to website widget visitors, messaging apps, voice devices or the public API, where anyone the assistant talks to could run commands. To widen it, list the surfaces: `BASH_SURFACES=app,api`. The admin can narrow this further, not widen it.
+
+## Several machines or several assistants
+
+**One assistant, several machines.** Add a connector per machine in the admin, each with its own URL, and give each machine its own tool name so the model can tell them apart:
+
+```bash
+# on web01, with web01's Connector URL
+BASH_TOOL_NAME=web01_bash python connector.py
+# on db01, with db01's Connector URL
+BASH_TOOL_NAME=db01_bash python connector.py
+```
+
+Then refresh tools in the admin. A tool name belongs to the connector that offered it first: a second machine offering the same name is refused, and its log says so. Each URL connects one machine at a time, and deleting or regenerating one disconnects only that machine.
+
+**One machine, several assistants.** A Connector URL belongs to one assistant, so run one connector per assistant, each with its own URL and audit log:
+
+```bash
+MCP_ENDPOINT="wss://...?token=mcpe_AAA" BASH_AUDIT_LOG=~/audit-a.jsonl python connector.py
+MCP_ENDPOINT="wss://...?token=mcpe_BBB" BASH_AUDIT_LOG=~/audit-b.jsonl python connector.py
+```
+
+Everyone who can chat with any of those assistants can run commands on the machine.
+
+## Limit what commands can reach
+
+The server only starts commands; it does not confine them. For anything beyond a personal machine:
+
+- Run the connector as a dedicated user without `sudo`, owning only the directories the assistant should touch.
+- Better, run it in a rootless container with a read-only root filesystem and one writable volume, and restrict its outbound network if you can: commands can send anything they read to the internet.
+- Pass secrets with `BASH_PASS_ENV` only when a task needs them, and review `audit.jsonl`.
 
 ## Keep it running on a server
 
@@ -60,7 +94,7 @@ Returns `stdout`, `stderr`, `exit_code`, `timed_out`, `truncated` and `cwd` (whe
 
 ## Reconnection
 
-`connector.py` reconnects with exponential backoff (1 s up to 10 min), and starts over after a session that stayed up for a minute. If the Connector URL is regenerated or revoked in the admin, the log says so; restart with the new URL.
+`connector.py` reconnects with exponential backoff (1 s up to 10 min), and starts over after a session that stayed up for a minute. If the Connector URL is regenerated or deleted in the admin, the log says so; restart with the new URL. If the endpoint refuses the connection because the URL is already in use or another machine offers the same tool name, the log names the conflict.
 
 ## Tests
 

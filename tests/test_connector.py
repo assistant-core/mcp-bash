@@ -16,3 +16,18 @@ def test_server_process_does_not_inherit_the_connector_url(monkeypatch):
 
     assert "MCP_ENDPOINT" not in env
     assert env["BASH_WORKDIR"] == "/tmp"
+
+
+def test_conflict_hint_repeats_the_reason_and_says_what_to_do():
+    from types import SimpleNamespace
+
+    from connector import close_hint
+
+    hint = close_hint(
+        SimpleNamespace(code=4409, reason="Connector web01 is already connected")
+    )
+
+    assert "Connector web01 is already connected" in hint
+    assert "its own Connector URL" in hint
+    assert "regenerated" in close_hint(SimpleNamespace(code=4401, reason=""))
+    assert close_hint(None) == ""

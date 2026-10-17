@@ -25,6 +25,17 @@ You can also put `MCP_ENDPOINT` in a `.env` file (see `.env.example`). To connec
 
 On Assistant Core the tool is offered only in the web and mobile apps (`BASH_SURFACES=app`), never to website widget visitors, messaging apps, voice devices or the public API, where anyone the assistant talks to could run commands. To widen it, list the surfaces: `BASH_SURFACES=app,api`. The admin can narrow this further, not widen it.
 
+## When it asks first
+
+Assistant Core asks before every command unless a rule says otherwise, because the tool can change anything on the machine. The tool tells Assistant Core which argument holds the command line, so rules can name commands instead of the whole tool:
+
+- On an approval card, tick **Don't ask again** (for commands starting with `git status`) to run `git status` without asking next time, in chat and in scheduled tasks. Manage these in Settings → Approvals.
+- The assistant's owner sets rules for everyone in the admin (**Approvals**): **Allow** `git status`, **Ask** for `docker`, **Block** `rm`. Block wins over Ask, Ask over Allow.
+
+A command line runs without asking only when every command in it is allowed: `git status && rm -rf x` still asks. Lines with `$(…)`, backticks, redirections or variables, and commands that run other commands (`sudo`, `bash -c`, `xargs`, `python`…), are never allowed by a command rule.
+
+After updating this server, refresh tools in the admin once so Assistant Core sees the new definition.
+
 ## Several machines or several assistants
 
 **One assistant, several machines.** Add a connector per machine in the admin, each with its own URL, and give each machine its own tool name so the model can tell them apart:

@@ -114,7 +114,10 @@ def test_tool_is_offered_only_in_the_apps_by_default(monkeypatch):
 
     tool = _listed_tool(monkeypatch)
 
-    assert tool.meta["assistant_platform"] == {"surfaces": ["app"]}
+    assert tool.meta["assistant_platform"] == {
+        "surfaces": ["app"],
+        "shell_argument": "command",
+    }
 
 
 def test_tool_name_and_surfaces_are_configurable(monkeypatch):
@@ -123,7 +126,7 @@ def test_tool_name_and_surfaces_are_configurable(monkeypatch):
     )
 
     assert tool.name == "web01_bash"
-    assert tool.meta["assistant_platform"] == {"surfaces": ["app", "api"]}
+    assert tool.meta["assistant_platform"]["surfaces"] == ["app", "api"]
 
 
 def test_invalid_tool_name_is_rejected(monkeypatch):

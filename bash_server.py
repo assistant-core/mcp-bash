@@ -171,7 +171,9 @@ def _kill_group(process: asyncio.subprocess.Process) -> None:
 
 @mcp.tool(
     name=TOOL_NAME,
-    meta={"assistant_platform": {"surfaces": SURFACES}},
+    # shell_argument: Assistant Core matches approval rules ("always allow
+    # git status") against each command of this argument's command line.
+    meta={"assistant_platform": {"surfaces": SURFACES, "shell_argument": "command"}},
     annotations=ToolAnnotations(
         title="Run bash command",
         destructive_hint=True,

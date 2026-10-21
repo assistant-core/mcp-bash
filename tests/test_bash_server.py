@@ -141,12 +141,12 @@ def test_invalid_tool_name_is_rejected(monkeypatch):
 
 def test_commands_do_not_see_server_secrets(monkeypatch, tmp_path):
     monkeypatch.setattr(bash_server, "WORKDIR", tmp_path)
-    monkeypatch.setenv("MCP_ENDPOINT", "wss://x/mcp/?token=mcpe_secret")
+    monkeypatch.setenv("LOCAL_CONNECTOR_TOKEN", "lc_secret")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
 
     result = run("env")
 
-    assert "mcpe_secret" not in result["stdout"]
+    assert "lc_secret" not in result["stdout"]
     assert "aws-secret" not in result["stdout"]
     assert "PATH=" in result["stdout"]
 

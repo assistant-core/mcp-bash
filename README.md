@@ -1,6 +1,6 @@
 # mcp-bash
 
-A minimal MCP server that lets an AI assistant run bash commands on your machine, connected through an **MCP Endpoint** (Assistant Core, or any Xiaozhi-compatible endpoint). The connector dials out over WebSocket, so the machine needs no public URL or open port.
+A minimal MCP server that lets an AI assistant run bash commands on your machine, connected as an Assistant Core **local connector**. The connector dials out over WebSocket, so the machine needs no public URL or open port.
 
 > ⚠️ **Anyone who can chat with the connected assistant can run commands as your user.** Use it only with assistants you trust, run it under a low-privilege account, and stop it when you are done.
 
@@ -10,16 +10,15 @@ A minimal MCP server that lets an AI assistant run bash commands on your machine
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Assistant Core admin → MCP → Local connector → Add connector (URL shown once)
-export MCP_ENDPOINT="wss://api.assistantcore.com/mcp_endpoint/mcp/?token=mcpe_..."
+# Assistant Core admin → MCP → Local connector → Add connector (token shown once)
+export LOCAL_CONNECTOR_URL="wss://api.assistantcore.com/local-connector/ws"
+export LOCAL_CONNECTOR_TOKEN="lc_..."
 python connector.py
 ```
 
 Then click **Refresh tools** in the admin: the assistant gets one tool, `bash`. Assistant Core offers a connector's tools only as the owner last refreshed them, so refresh again after changing `BASH_TOOL_NAME`, `BASH_SURFACES` or the server.
 
-You can also put `MCP_ENDPOINT` in a `.env` file (see `.env.example`). To connect a different stdio MCP server, pass its script: `python connector.py my_server.py`.
-
-`connector.py` is the equivalent of Xiaozhi's `mcp_pipe.py` and takes the same `MCP_ENDPOINT` URL.
+You can also put both settings in a `.env` file (see `.env.example`). To connect a different stdio MCP server, pass its script: `python connector.py my_server.py`.
 
 ## Where the tool is offered
 
@@ -38,22 +37,22 @@ After updating this server, refresh tools in the admin once so Assistant Core se
 
 ## Several machines or several assistants
 
-**One assistant, several machines.** Add a connector per machine in the admin, each with its own URL, and give each machine its own tool name so the model can tell them apart:
+**One assistant, several machines.** Add a connector per machine in the admin, each with its own token, and give each machine its own tool name so the model can tell them apart:
 
 ```bash
-# on web01, with web01's Connector URL
+# on web01, with web01's token
 BASH_TOOL_NAME=web01_bash python connector.py
-# on db01, with db01's Connector URL
+# on db01, with db01's token
 BASH_TOOL_NAME=db01_bash python connector.py
 ```
 
-Then refresh tools in the admin. A tool name belongs to the connector that offered it first: a second machine offering the same name is refused, and its log says so. Each URL connects one machine at a time, and deleting or regenerating one disconnects only that machine.
+Then refresh tools in the admin. A tool name belongs to the connector that offered it first: a second machine offering the same name is refused, and its log says so. Each token connects one machine at a time, and deleting or regenerating one disconnects only that machine.
 
-**One machine, several assistants.** A Connector URL belongs to one assistant, so run one connector per assistant, each with its own URL and audit log:
+**One machine, several assistants.** A connector token belongs to one assistant, so run one connector per assistant, each with its own token and audit log:
 
 ```bash
-MCP_ENDPOINT="wss://...?token=mcpe_AAA" BASH_AUDIT_LOG=~/audit-a.jsonl python connector.py
-MCP_ENDPOINT="wss://...?token=mcpe_BBB" BASH_AUDIT_LOG=~/audit-b.jsonl python connector.py
+LOCAL_CONNECTOR_TOKEN=lc_AAA BASH_AUDIT_LOG=~/audit-a.jsonl python connector.py
+LOCAL_CONNECTOR_TOKEN=lc_BBB BASH_AUDIT_LOG=~/audit-b.jsonl python connector.py
 ```
 
 Everyone who can chat with any of those assistants can run commands on the machine.
@@ -94,7 +93,7 @@ tmux survives SSH disconnects, but not a server reboot, and nothing restarts the
 Returns `stdout`, `stderr`, `exit_code`, `timed_out`, `truncated` and `cwd` (where the command ended).
 
 - The first command starts in `BASH_WORKDIR` (default: your home directory); each later one starts where the previous one ended, like a terminal. Environment variables, aliases and functions do not carry over: every call is a new shell. A command that times out keeps the directory it started in. This is a starting point, **not a sandbox**.
-- Commands see only a minimal environment (`PATH`, `HOME`, `USER`, `SHELL`, locale, `TERM`, `TMPDIR`, `TZ`), so secrets in your shell, including the Connector URL, never reach the assistant. Pass extra variables explicitly with `BASH_PASS_ENV=GITHUB_TOKEN,AWS_PROFILE`; anything you pass, the assistant can read.
+- Commands see only a minimal environment (`PATH`, `HOME`, `USER`, `SHELL`, locale, `TERM`, `TMPDIR`, `TZ`), so secrets in your shell, including the connector token, never reach the assistant. Pass extra variables explicitly with `BASH_PASS_ENV=GITHUB_TOKEN,AWS_PROFILE`; anything you pass, the assistant can read.
 - stdin is closed, so commands that prompt for input fail instead of hanging.
 - On timeout the whole process group is killed. A process that starts its own session (`setsid`) can outlive it; there is no sandbox to stop that.
 - Background jobs keep running after the command returns; redirect their output (`cmd > log 2>&1 &`), since the result is returned as soon as bash exits.
@@ -105,7 +104,7 @@ Returns `stdout`, `stderr`, `exit_code`, `timed_out`, `truncated` and `cwd` (whe
 
 ## Reconnection
 
-`connector.py` reconnects with exponential backoff (1 s up to 10 min), and starts over after a session that stayed up for a minute. If the Connector URL is regenerated or deleted in the admin, the log says so; restart with the new URL. If the endpoint refuses the connection because the URL is already in use or another machine offers the same tool name, the log names the conflict.
+`connector.py` reconnects with exponential backoff (1 s up to 10 min), and starts over after a session that stayed up for a minute. If the connector token is regenerated or deleted in the admin, the log says so; restart with the new token. If the relay refuses the connection because the token is already in use or another machine offers the same tool name, the log names the conflict.
 
 ## Tests
 

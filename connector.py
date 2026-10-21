@@ -1,18 +1,17 @@
-"""Connect a local stdio MCP server to an MCP Endpoint over WebSocket.
+"""Connect a local stdio MCP server to an Assistant Core local connector.
 
-Equivalent to Xiaozhi's mcp_pipe.py: it uses the same MCP_ENDPOINT URL.
-
-The connector dials out, so the machine needs no public URL or open port.
+The connector dials out over WebSocket, so the machine needs no public URL or
+open port.
 
 Usage:
-    export MCP_ENDPOINT="wss://.../mcp_endpoint/mcp/?token=..."
+    export LOCAL_CONNECTOR_URL="wss://api.assistantcore.com/local-connector/ws"
+    export LOCAL_CONNECTOR_TOKEN="lc_..."
     python connector.py [server.py]   # defaults to bash_server.py
 """
 
 import asyncio
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -30,11 +29,8 @@ MAX_BACKOFF = 600
 STABLE_SESSION_SECONDS = 60
 # MCP JSON-RPC lines can be large (tool output); asyncio's default is 64 KiB.
 STREAM_LIMIT = 4 * 1024 * 1024
-
-
-def redact(uri: str) -> str:
-    """Hide the token so the endpoint URL can be logged."""
-    return re.sub(r"([?&]token=)[^&]+", r"\1***", uri)
+# Connector settings, which the MCP server never sees.
+CONNECTOR_ENV = ("LOCAL_CONNECTOR_URL", "LOCAL_CONNECTOR_TOKEN")
 
 
 async def _websocket_to_process(websocket, process) -> None:
@@ -52,14 +48,16 @@ async def _process_to_websocket(process, websocket) -> None:
 
 
 def server_env() -> dict[str, str]:
-    """The server's environment, without the Connector URL."""
-    return {k: v for k, v in os.environ.items() if k != "MCP_ENDPOINT"}
+    """The server's environment, without the connector settings."""
+    return {k: v for k, v in os.environ.items() if k not in CONNECTOR_ENV}
 
 
-async def run_session(uri: str, command: list[str]) -> None:
+async def run_session(uri: str, token: str, command: list[str]) -> None:
     """Pipe one WebSocket connection to a fresh MCP server process."""
-    async with websockets.connect(uri) as websocket:
-        logger.info("Connected to %s", redact(uri))
+    async with websockets.connect(
+        uri, additional_headers={"Authorization": f"Bearer {token}"}
+    ) as websocket:
+        logger.info("Connected to %s", uri)
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
@@ -87,26 +85,26 @@ async def run_session(uri: str, command: list[str]) -> None:
 
 
 def close_hint(close) -> str:
-    """What the owner should do about the endpoint closing the connection."""
+    """What the owner should do about the relay closing the connection."""
     if close is None:
         return ""
     if close.code in (1008, 4401):
-        return " (the Connector URL is invalid, regenerated or deleted)"
+        return " (the connector token is invalid, regenerated or deleted)"
     if close.code == 4409:
-        # Another machine uses this URL, or offers a tool with the same name.
+        # Another machine uses this token, or offers a tool with the same name.
         return (
-            f" ({close.reason}; give each machine its own Connector URL "
+            f" ({close.reason}; give each machine its own connector token "
             "and BASH_TOOL_NAME)"
         )
     return ""
 
 
-async def run_forever(uri: str, command: list[str]) -> None:
+async def run_forever(uri: str, token: str, command: list[str]) -> None:
     backoff = INITIAL_BACKOFF
     while True:
         started = asyncio.get_running_loop().time()
         try:
-            await run_session(uri, command)
+            await run_session(uri, token, command)
             logger.warning("Session ended")
         except websockets.ConnectionClosed as exc:
             code = exc.rcvd.code if exc.rcvd else None
@@ -122,16 +120,20 @@ async def run_forever(uri: str, command: list[str]) -> None:
 
 def main() -> None:
     load_dotenv()
-    uri = os.environ.get("MCP_ENDPOINT")
-    if not uri:
-        sys.exit("Set MCP_ENDPOINT to the Connector URL from the assistant admin.")
+    uri = os.environ.get("LOCAL_CONNECTOR_URL")
+    token = os.environ.get("LOCAL_CONNECTOR_TOKEN")
+    if not uri or not token:
+        sys.exit(
+            "Set LOCAL_CONNECTOR_URL and LOCAL_CONNECTOR_TOKEN to the connector "
+            "settings from the assistant admin."
+        )
     server = Path(
         sys.argv[1] if len(sys.argv) > 1 else Path(__file__).with_name("bash_server.py")
     )
     if not server.is_file():
         sys.exit(f"MCP server script not found: {server}")
     try:
-        asyncio.run(run_forever(uri, [sys.executable, str(server)]))
+        asyncio.run(run_forever(uri, token, [sys.executable, str(server)]))
     except KeyboardInterrupt:
         logger.info("Stopped")
 

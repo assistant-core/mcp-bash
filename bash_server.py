@@ -45,7 +45,7 @@ MAX_CONCURRENT_COMMANDS = 2
 # stop reading this long after it does.
 PIPE_GRACE_SECONDS = 1.0
 # Commands see only these variables (plus BASH_PASS_ENV), so secrets in the
-# server's environment, such as the Connector URL, never reach the assistant.
+# server's environment, such as the connector token, never reach the assistant.
 BASE_ENV = (
     "PATH",
     "HOME",
